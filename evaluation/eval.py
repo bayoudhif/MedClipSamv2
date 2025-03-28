@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import os
+import json
 from collections import OrderedDict
 import pandas as pd
 from SurfaceDice import compute_surface_distances, compute_surface_dice_at_tolerance, compute_dice_coefficient
@@ -12,79 +13,82 @@ basename = os.path.basename
 
 # Argument parser
 parser = argparse.ArgumentParser()
-parser.add_argument('--gt_path', type=str, default='data/breast/test_masks')
-parser.add_argument('--seg_path', type=str, default='crf_outputs/breast/test_CRF')
+parser.add_argument('--gt_path', type=str, required=True, help='Path to ground truth masks')
+parser.add_argument('--seg_path', type=str, required=True, help='Path to predicted masks')
+parser.add_argument('--output', type=str, default='results.json', help='Path to save JSON results')
 
 args = parser.parse_args()
-gt_path = args.gt_path
-seg_path = args.seg_path
-
-# Get list of filenames
-filenames = os.listdir(seg_path)
-filenames = [x for x in filenames if x.endswith('.png') or x.endswith('.jpg') or x.endswith('.jpeg')]
-filenames = [x for x in filenames if os.path.exists(join(seg_path, x))]
-filenames.sort()
 
 # Initialize metrics dictionary
 seg_metrics = OrderedDict(
-    Name = list(),
-    DSC = list(),
-    NSD = list(),
+    Name=[],
+    DSC=[],
+    NSD=[],
 )
 
 # Compute metrics for each file
-for name in tqdm(filenames):
-    seg_metrics['Name'].append(name)
-    gt_mask = cv2.imread(join(gt_path, name), cv2.IMREAD_GRAYSCALE)
-    seg_mask = cv2.imread(join(seg_path, name), cv2.IMREAD_GRAYSCALE)
-    seg_mask = cv2.resize(seg_mask, (gt_mask.shape[1], gt_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
-    gt_mask = cv2.threshold(gt_mask, 200, 255, cv2.THRESH_BINARY)[1]
-    seg_mask = cv2.threshold(seg_mask, 200, 255, cv2.THRESH_BINARY)[1]
-    gt_data = np.uint8(gt_mask)
-    seg_data = np.uint8(seg_mask)
+filenames = [f for f in os.listdir(args.seg_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+filenames.sort()
 
-    gt_labels = np.unique(gt_data)[1:]
-    seg_labels = np.unique(seg_data)[1:]
-    labels = np.union1d(gt_labels, seg_labels)
+for name in tqdm(filenames, desc="Evaluating masks"):
+    try:
+        seg_metrics['Name'].append(name)
+        
+        # Load and process masks
+        gt_mask = cv2.imread(join(args.gt_path, name), cv2.IMREAD_GRAYSCALE)
+        seg_mask = cv2.imread(join(args.seg_path, name), cv2.IMREAD_GRAYSCALE)
+        seg_mask = cv2.resize(seg_mask, (gt_mask.shape[1], gt_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
+        
+        # Binarize masks
+        gt_mask = cv2.threshold(gt_mask, 200, 255, cv2.THRESH_BINARY)[1]
+        seg_mask = cv2.threshold(seg_mask, 200, 255, cv2.THRESH_BINARY)[1]
+        
+        gt_data = np.uint8(gt_mask)
+        seg_data = np.uint8(seg_mask)
 
-    assert len(labels) > 0, 'Ground truth mask max: {}'.format(gt_data.max())
+        # Calculate metrics
+        labels = np.union1d(np.unique(gt_data)[1:], np.unique(seg_data)[1:])
+        assert len(labels) > 0, f'No labels found in {name}'
 
-    DSC_arr = []
-    NSD_arr = []
-    for i in labels:
-        if np.sum(gt_data==i)==0 and np.sum(seg_data==i)==0:
-            DSC_i = 1
-            NSD_i = 1
-        elif np.sum(gt_data==i)==0 and np.sum(seg_data==i)>0:
-            DSC_i = 0
-            NSD_i = 0
-        else:
-            i_gt, i_seg = gt_data == i, seg_data == i
+        DSC_arr, NSD_arr = [], []
+        for i in labels:
+            i_gt, i_seg = (gt_data == i), (seg_data == i)
             
-            # Compute Dice coefficient
-            DSC_i = compute_dice_coefficient(i_gt, i_seg)
+            # Handle edge cases
+            if np.sum(i_gt) == 0 and np.sum(i_seg) == 0:
+                DSC_arr.append(1.0)
+                NSD_arr.append(1.0)
+                continue
+                
+            if np.sum(i_gt) == 0 or np.sum(i_seg) == 0:
+                DSC_arr.append(0.0)
+                NSD_arr.append(0.0)
+                continue
 
-            # Compute NSD
-            case_spacing = [1, 1, 1]
-            surface_distances = compute_surface_distances(i_gt[..., None], i_seg[..., None], case_spacing)
-            NSD_i = compute_surface_dice_at_tolerance(surface_distances, 2)
+            # Compute metrics
+            DSC_arr.append(compute_dice_coefficient(i_gt, i_seg))
+            surface_distances = compute_surface_distances(i_gt[..., None], i_seg[..., None], [1, 1, 1])
+            NSD_arr.append(compute_surface_dice_at_tolerance(surface_distances, 2))
 
-        DSC_arr.append(DSC_i)
-        NSD_arr.append(NSD_i)
+        seg_metrics['DSC'].append(float(np.mean(DSC_arr)))
+        seg_metrics['NSD'].append(float(np.mean(NSD_arr)))
 
-    DSC = np.mean(DSC_arr)
-    NSD = np.mean(NSD_arr)
-    seg_metrics['DSC'].append(round(DSC, 4))
-    seg_metrics['NSD'].append(round(NSD, 4))
+    except Exception as e:
+        print(f"Error processing {name}: {str(e)}")
+        seg_metrics['DSC'].append(np.nan)
+        seg_metrics['NSD'].append(np.nan)
 
-# Save metrics to CSV
-dataframe = pd.DataFrame(seg_metrics)
+# Save results to JSON
+results = {
+    'per_image': seg_metrics,
+    'average': {
+        'DSC': float(np.nanmean(seg_metrics['DSC'])),
+        'NSD': float(np.nanmean(seg_metrics['NSD']))
+    }
+}
 
-# Calculate and print average and std deviation for metrics
-case_avg_DSC = dataframe['DSC'].mean()
-case_avg_NSD = dataframe['NSD'].mean()
+with open(args.output, 'w') as f:
+    json.dump(results, f, indent=2)
 
-print(20 * '>')
-print(f'Average DSC for {basename(seg_path)}: {case_avg_DSC}')
-print(f'Average NSD for {basename(seg_path)}: {case_avg_NSD}')
-print(20 * '<')
+print(f"\nAverage DSC: {results['average']['DSC']:.4f}")
+print(f"Average NSD: {results['average']['NSD']:.4f}")

@@ -153,7 +153,7 @@ def main(args):
 
     if(not args.reproduce):
         # Get user input for the text to generate saliency maps
-        text = str(input("Enter the text: "))
+        text = args.text_prompt
 
     # Perform hyperparameter optimization if required
     if(args.hyper_opt):
@@ -206,6 +206,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-path', required=True, default="saliency_map_outputs", type=str, help='path to the output')
     parser.add_argument('--val-path', type=str, default="data/val_images", help='path to the validation set for hyperparameter optimization')
     parser.add_argument('--vbeta', type=float, default=0.1)
+    parser.add_argument('--text-prompt', type=str, default="brain tumor", help="Text prompt for segmentation")
     parser.add_argument('--vvar', type=float, default=1.0)
     parser.add_argument('--vlayer', type=int, default=7)
     parser.add_argument('--tbeta', type=float, default=0.3)
