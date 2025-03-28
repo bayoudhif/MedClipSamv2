@@ -163,6 +163,7 @@ def main(args):
         args.vlayer = int(best_combo['vlayer'])
         
     print("Generating Saliency Maps ...")
+    print(text)
 
     # Create the output directory if it does not exist
     if(not os.path.exists(args.output_path)):
