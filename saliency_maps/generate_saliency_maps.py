@@ -137,7 +137,7 @@ def main(args):
     
     # Load the appropriate model based on the arguments
     if(args.model_name == "BiomedCLIP" and args.finetuned):
-        model = AutoModel.from_pretrained("./saliency_maps/model", trust_remote_code=True).to(args.device)
+        model = AutoModel.from_pretrained(f"{args.base_path}/saliency_maps/model", trust_remote_code=True).to(args.device)
         processor = AutoProcessor.from_pretrained("chuhac/BiomedCLIP-vit-bert-hf", trust_remote_code=True)
         tokenizer = AutoTokenizer.from_pretrained("chuhac/BiomedCLIP-vit-bert-hf", trust_remote_code=True)
     elif(args.model_name == "BiomedCLIP" and not args.finetuned):
@@ -203,6 +203,7 @@ if __name__ == '__main__':
     # Define argument parser for input/output paths and hyperparameters
     parser = argparse.ArgumentParser('M2IB argument parser')
     parser.add_argument('--input-path', required=True, default="data/input_images", type=str, help='path to the images')
+    parser.add_argument('--base-path', required=True, default="data/input_images", type=str, help='base path to the images')
     parser.add_argument('--output-path', required=True, default="saliency_map_outputs", type=str, help='path to the output')
     parser.add_argument('--val-path', type=str, default="data/val_images", help='path to the validation set for hyperparameter optimization')
     parser.add_argument('--vbeta', type=float, default=0.1)

@@ -102,6 +102,6 @@ def _build_sam(
     sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f, weights_only=True)
+            state_dict = torch.load(f, map_location='cuda')
         sam.load_state_dict(state_dict)
     return sam
